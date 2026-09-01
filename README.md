@@ -19,15 +19,16 @@ Four core components drive the detection pipeline:
 
 ## System Architecture
 
-1. **Transaction Ingestion & KYC Data:** Raw ledger events and entity metadata are loaded into memory.
-2. **Graph Engine:** NetworkX parses the data to isolate closed 3-hop money-flow loops.
-3. **NVIDIA NIM LLM Agent:** Flagged nodes and transactions are evaluated for subnet overlaps and MCC anomalies.
-4. **Automated Enforcement:** Confirmed fraud routes trigger mock payout freezes and generate structured audit logs.
-
-## Getting Started Locally
-
-### 1. Clone the repository and set up a virtual environment
-```bash
+```mermaid
+flowchart TD
+    A[Transaction Ledger & KYC Data] --> B[Graph Engine: NetworkX MultiDiGraph]
+    B -->|Discovers 3-Hop Loops| C[NVIDIA NIM LLM Agent: Llama 3.2 11B]
+    C -->|Evaluates IP Subnets & MCC Codes| D{Verdict Analysis}
+    D -->|Fraud Detected| E[Trigger Mock Payout Freezes & Log Audit Trail]
+    D -->|Legitimate Loop| F[Clear Entity / Monitor]
+Getting Started Locally
+1. Clone the repository and set up a virtual environment
+Bash
 git clone [https://github.com/ydabas-hue/razorpay-circular-fraud-detector.git](https://github.com/ydabas-hue/razorpay-circular-fraud-detector.git)
 cd razorpay-circular-fraud-detector
 python3 -m venv venv
