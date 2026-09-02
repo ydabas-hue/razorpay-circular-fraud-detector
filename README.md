@@ -1,6 +1,6 @@
 # RazorpayX Circular Fraud Detector
 
-An autonomous financial surveillance pipeline combining a NetworkX graph engine with NVIDIA NIM agentic workflows to detect, analyze, and mitigate 3-hop money-flow anomalies on RazorpayX infrastructure.
+Graph-based agentic security pipeline for identifying multi-entity shell company fraud on RazorpayX infrastructure.
 
 ## Why this exists
 
@@ -19,7 +19,7 @@ The RazorpayX Circular Fraud Detector's premise: transaction topology is a graph
 Four core components drive the detection pipeline:
 
 1. **Graph topology analysis (`graph_engine.py`):** Leverages NetworkX (`MultiDiGraph`) to discover closed 3-hop money loops across transaction ledgers, separating organic merchant activity from synthetic circular loops.
-2. **Agentic SAR classifier (`sar_agent.py`):** Interfaces with NVIDIA NIM APIs (Llama 3.2 11B) using constrained JSON prompts to evaluate metadata signals, IP subnet overlap, and merchant category code (MCC) alignment.
+2. **Agentic SAR classifier (`sar_agent.py`):** Interfaces with NVIDIA NIM APIs (`meta/llama-3.2-11b-vision-instruct`) using constrained JSON prompts to evaluate metadata signals, IP subnet overlap, and merchant category code (MCC) alignment.
 3. **Automated mitigation (`mock_api.py`):** Executes bounded remediation workflows, automatically triggering payout suspension hooks (`POST /v1/payouts/{id}/suspend`) for confirmed frauds.
 4. **Evaluation harness (`evaluate.py`):** Benchmarks detector recall and precision against held-out synthetic validation splits, generating an immutable audit trail (`audit_log.jsonl`).
 
@@ -28,7 +28,7 @@ Four core components drive the detection pipeline:
 | Layer | Choice | Why |
 | :--- | :--- | :--- |
 | **Graph Engine** | NetworkX (`MultiDiGraph`) | Native directed multigraph support to isolate closed circular transaction loops efficiently. |
-| **LLM Agent** | NVIDIA NIM (`meta/llama-3.2-11b-vision-instruct`) | High-speed inference for processing KYC payloads and generating strict JSON verdicts. |
+| **LLM Agent** | NVIDIA NIM (`meta/llama-3.2-11b-vision-instruct`) | High-speed inference model for deep analysis of complex KYC payloads and strict JSON verdicts. |
 | **Data Processing** | Pandas + NumPy | Fast manipulation of transaction ledgers and entity metadata registries. |
 | **Auditing & Logs** | JSONL (`audit_log.jsonl`) | Immutable, line-delimited audit trails structured for filing Suspicious Activity Reports (SAR). |
 
@@ -46,11 +46,15 @@ source venv/bin/activate
 Install dependencies:
 
 Bash
-pip install openai networkx pandas
+pip install openai networkx pandas pytest
 Configure your NVIDIA NIM API key:
 
 Bash
 export NVIDIA_API_KEY="nvapi-your-key-here"
+Run the test suite:
+
+Bash
+pytest tests/ -v   # Verifies core graph and mock execution components
 Run the fraud detection pipeline:
 
 Bash
@@ -59,17 +63,10 @@ Run the evaluation suite:
 
 Bash
 python3 evaluate.py
+Results
+Run the evaluation harness to generate live results against the held-out test set:
 
-## Results
-Evaluated on a held-out test set of 12 detected cycles (5 fraud, 7 legitimate).
-| Metric    | Score |
-|-----------|-------|
-| Precision | 0.42  |
-| Recall    | 1.00  |
-| F1 Score  | 0.59  |
-
-**Confusion Matrix:**
-- True Positives (fraud caught): 5
-- False Positives (legit flagged): 7  
-- True Negatives (legit cleared): 0
-- False Negatives (fraud missed): 0
+Bash
+export NVIDIA_API_KEY="nvapi-your-key-here"
+python3 evaluate.py
+The harness prints a live confusion matrix and F1 score to stdout and appends every decision to audit_log.jsonl for inspection.
