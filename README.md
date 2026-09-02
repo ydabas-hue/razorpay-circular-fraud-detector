@@ -59,3 +59,17 @@ Run the evaluation suite:
 
 Bash
 python3 evaluate.py
+
+## Results
+Evaluated on a held-out test set of 12 detected cycles (5 fraud, 7 legitimate).
+| Metric    | Score |
+|-----------|-------|
+| Precision | 0.42  |
+| Recall    | 1.00  |
+| F1 Score  | 0.59  |
+
+**Confusion Matrix:**
+- True Positives (fraud caught): 5
+- False Positives (legit flagged): 7  
+- True Negatives (legit cleared): 0
+- False Negatives (fraud missed): 0
