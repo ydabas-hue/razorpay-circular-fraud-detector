@@ -1,23 +1,101 @@
 import json
 import os
+import re
 import pandas as pd
 from openai import OpenAI
 
+DEFAULT_MODEL = "nvidia/nemotron-3-super-120b-a12b"
+FALLBACK_MODEL = "nvidia/nemotron-3-ultra-550b-a55b"
+
 _CLIENT = None
+_INSTRUCTIONS = None
+
+
+def _load_env():
+    """Load key-value pairs from .env if present and not already set in environment."""
+    env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
+    if os.path.isfile(env_path):
+        with open(env_path, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                k, v = line.split("=", 1)
+                k = k.strip()
+                v = v.strip().strip("'\"")
+                if k and k not in os.environ and v:
+                    os.environ[k] = v
+
+
+def _load_agent_instructions() -> str:
+    """Load system instructions and personality definition from agents/sar_analyst.md."""
+    global _INSTRUCTIONS
+    if _INSTRUCTIONS is None:
+        md_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "agents", "sar_analyst.md")
+        if os.path.isfile(md_path):
+            with open(md_path, "r", encoding="utf-8") as f:
+                content = f.read()
+            # Strip YAML frontmatter if present
+            if content.startswith("---"):
+                parts = content.split("---", 2)
+                if len(parts) >= 3:
+                    content = parts[2].strip()
+            _INSTRUCTIONS = content
+        else:
+            _INSTRUCTIONS = (
+                "You are a Senior AML Forensic Investigator at RazorpayX. "
+                "Analyze transaction cycles and KYC metadata to distinguish fraud from legitimate commerce. "
+                "Return only valid JSON."
+            )
+    return _INSTRUCTIONS
+
 
 def _get_client():
     global _CLIENT
     if _CLIENT is None:
+        _load_env()
         api_key = os.environ.get("NVIDIA_API_KEY")
         if not api_key:
-            raise ValueError("NVIDIA_API_KEY environment variable not set.")
-        # Added a 30-second timeout to prevent infinite hanging
+            raise ValueError("NVIDIA_API_KEY environment variable not set. Add it to .env or export it.")
         _CLIENT = OpenAI(
             base_url="https://integrate.api.nvidia.com/v1",
             api_key=api_key,
-            timeout=30.0
+            timeout=60.0,
         )
     return _CLIENT
+
+
+def _extract_json(content: str) -> dict:
+    text = content.strip()
+    if text.startswith("```"):
+        text = text.split("\n", 1)[-1]
+    if text.endswith("```"):
+        text = text.rsplit("```", 1)[0]
+    text = text.strip()
+
+    try:
+        return json.loads(text, strict=False)
+    except json.JSONDecodeError:
+        match = re.search(r"\{[\s\S]*\}", text)
+        if match:
+            return json.loads(match.group(0), strict=False)
+        raise
+
+
+def _invoke_model(client: OpenAI, model: str, system_prompt: str, user_prompt: str) -> dict:
+    response = client.chat.completions.create(
+        model=model,
+        max_tokens=2048,
+        temperature=0.1,
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ],
+    )
+
+    content = response.choices[0].message.content or ""
+    return _extract_json(content)
+
 
 def analyze_cycle(cycle_data: dict, entity_registry: pd.DataFrame) -> dict:
     nodes_list = cycle_data["nodes"]
@@ -27,48 +105,28 @@ def analyze_cycle(cycle_data: dict, entity_registry: pd.DataFrame) -> dict:
     nodes_df = entity_registry[entity_registry["entity_id"].isin(nodes_list)]
     kyc_payload = nodes_df.to_dict(orient="records")
 
-    prompt = f"""You are a financial fraud analyst at Razorpay. A graph anomaly detector has flagged a closed {len(nodes_list)}-hop money loop on RazorpayX infrastructure.
+    system_prompt = _load_agent_instructions()
 
-Flagged nodes (in order): {nodes_list}
+    user_prompt = f"""Investigate the following flagged closed {len(nodes_list)}-hop transaction cycle:
+
+Flagged Nodes: {nodes_list}
 
 Transactions (Edges):
 {json.dumps(edges_list, indent=2)}
 
-Entity KYC metadata:
+Entity KYC Metadata:
 {json.dumps(kyc_payload, indent=2)}
 
-Analyze whether this is fraudulent round-tripping or a legitimate micro-economy.
-Key fraud signals to look for:
-- All nodes sharing the same IP subnet (suggests coordinated shell entities)
-- MCC codes that are logically unrelated (e.g., software company paying cement supplier)
-- All nodes incorporated within a few days of each other (coordinated creation)
-- Unusually round or identical transaction amounts across all hops
+Evaluate whether this cycle represents coordinated circular round-tripping or legitimate supply-chain commerce.
+Return your findings strictly in the required JSON schema."""
 
-You MUST respond ONLY with a valid JSON object. Do not include any other text, greetings, or markdown. Use this exact schema:
-{{
-    "verdict": "FRAUD" or "LEGITIMATE",
-    "confidence": 0.95,
-    "reasoning": "One paragraph explaining the verdict based on metadata.",
-    "sar_summary": "One sentence summary suitable for filing with RBI.",
-    "recommended_action": "FREEZE_PAYOUTS", "MONITOR", or "CLEAR"
-}}"""
+    client = _get_client()
+    default_model = os.environ.get("NVIDIA_MODEL", DEFAULT_MODEL)
+    fallback_model = os.environ.get("NVIDIA_FALLBACK_MODEL", FALLBACK_MODEL)
 
-    print("  [LLM AGENT] Sending payload to NVIDIA Llama 3.2 11B (max 30s wait...)")
-
-    response = _get_client().chat.completions.create(
-        model="meta/llama-3.2-11b-vision-instruct",
-        max_tokens=1000,
-        temperature=0.1,
-        messages=[{"role": "user", "content": prompt}],
-    )
-
-    # Extract the raw text and clean it in case the model hallucinates markdown
-    content = response.choices[0].message.content.strip()
-    if content.startswith("```json"):
-        content = content.replace("```json", "", 1)
-    if content.startswith("```"):
-        content = content.replace("```", "", 1)
-    if content.endswith("```"):
-        content = content[::-1].replace("```", "", 1)[::-1]
-        
-    return json.loads(content.strip())
+    print(f"  [LLM AGENT] Querying primary model: {default_model}...")
+    try:
+        return _invoke_model(client, default_model, system_prompt, user_prompt)
+    except Exception as err:
+        print(f"  [LLM AGENT] Primary model ({default_model}) failed: {err}. Retrying with fallback model: {fallback_model}...")
+        return _invoke_model(client, fallback_model, system_prompt, user_prompt)

@@ -60,12 +60,12 @@ class GraphEngine:
         return {"nodes": cycle_nodes, "edges": edges}
 
     def _best_edge_meta(self, from_id: str, to_id: str) -> dict:
-        """Return metadata for the most recent edge between from_id → to_id."""
         best_ts = None
         best_meta = {"amount": 0.0, "tx_type": "unknown", "timestamp": ""}
-        for (f, t, k), meta in self._edge_meta.items():
-            if f == from_id and t == to_id:
-                if best_ts is None or meta["timestamp"] > best_ts:
+        if self._graph.has_edge(from_id, to_id):
+            for k in self._graph[from_id][to_id]:
+                meta = self._edge_meta.get((from_id, to_id, k))
+                if meta and (best_ts is None or meta["timestamp"] > best_ts):
                     best_ts = meta["timestamp"]
                     best_meta = meta
         return best_meta
