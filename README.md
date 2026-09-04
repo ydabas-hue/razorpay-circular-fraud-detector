@@ -104,7 +104,7 @@ Earlier naive zero-shot prompts suffered from severe confirmation bias (flagging
 
 ```bash
 # 1. Clone repository
-git clone https://github.com/yamantaka-singh/razorpay-circular-fraud-detector.git
+git clone https://github.com/ydabas-hue/razorpay-circular-fraud-detector.git
 cd razorpay-circular-fraud-detector
 
 # 2. Set up virtual environment
